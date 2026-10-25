@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where is my bus?</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #14213d; }
+  header { padding: 12px 16px; background: #14213d; color: #fff; }
+  header h1 { margin: 0; font-size: 1.2rem; }
+  .bar { display: flex; gap: 8px; padding: 10px 16px; background: #fff; }
+  select, button { font-size: 1rem; padding: 10px; border-radius: 8px; border: 1px solid #14213d; }
+  select { flex: 1; background: #fff; }
+  button { background: #fca311; border-color: #fca311; font-weight: 600; cursor: pointer; }
+  #info { padding: 10px 16px; font-size: 0.95rem; }
+  #map { height: 60vh; }
+</style>
+</head>
+<body>
+<header><h1>Where is my bus?</h1></header>
+
+<div class="bar">
+  <select id="route">
+    <option value="500D">500D</option>
+    <option value="335E">335E</option>
+    <option value="G4">G4</option>
+  </select>
+  <button id="report">I saw this bus here</button>
+</div>
+<div id="info">Pick a route to see recent sightings.</div>
+<div id="map"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAkUZgHzgNEgeMnUl9XmtO7ELZ3cut4MZY",
+  authDomain: "bus-tracker-fcf80.firebaseapp.com",
+  projectId: "bus-tracker-fcf80",
+  storageBucket: "bus-tracker-fcf80.firebasestorage.app",
+  messagingSenderId: "1053430562664",
+  appId: "1:1053430562664:web:3ee3ae0dded6e1097260dd"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const reportsRef = collection(db, "reports");
+
+// Map. Change these numbers to your own area.
+const map = L.map('map').setView([12.9716, 77.5946], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+let reports = [];
+let markers = [];
+
+function showReports() {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  const route = document.getElementById('route').value;
+  const mine = reports.filter(r => r.route === route);
+  let fresh = 0;
+
+  mine.forEach(r => {
+    const mins = Math.round((Date.now() - r.time) / 60000);
+    const stale = mins > 10;
+    if (!stale) fresh++;
+    const m = L.circleMarker([r.lat, r.lng], {
+      radius: 10,
+      color: stale ? '#999' : '#14213d',
+      fillColor: stale ? '#ccc' : '#fca311',
+      fillOpacity: stale ? 0.4 : 0.9
+    }).addTo(map);
+    m.bindPopup('Bus ' + route + ' seen ' + mins + ' min ago' + (stale ? ' (old)' : ''));
+    markers.push(m);
+  });
+
+  const confidence = fresh >= 3 ? 'High' : fresh === 2 ? 'Medium' : fresh === 1 ? 'Low' : 'No recent reports';
+  document.getElementById('info').textContent =
+    'Route ' + route + ': ' + fresh + ' recent sighting(s). Confidence: ' + confidence;
+}
+
+// Live updates: runs every time anyone adds a report
+onSnapshot(reportsRef, snapshot => {
+  reports = snapshot.docs.map(d => d.data());
+  showReports();
+});
+
+// Report button: saves to Firebase
+document.getElementById('report').addEventListener('click', () => {
+  navigator.geolocation.getCurrentPosition(async pos => {
+    await addDoc(reportsRef, {
+      route: document.getElementById('route').value,
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      time: Date.now()
+    });
+  }, () => alert('Please allow location access to report a bus.'));
+});
+
+document.getElementById('route').addEventListener('change', showReports);
+</script>
+</body>
+</html>
